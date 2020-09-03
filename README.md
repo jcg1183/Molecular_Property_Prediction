@@ -1,3 +1,11 @@
+# Geometric_Deep_Learning
+
+This repository contains forked code from an implementation of Graph Neural Networks for Quantum Chemistry.  My contribution was an LSTM readout function and testing of model hyperparameters.  My work is indicated in function descriptions.
+
+Joshua Greene
+Summer 2020
+Independent Study
+
 # Graph Neural Networks for Quantum Chemistry
 
 Implementation and modification of Message Passing Neural Networks as explained in the article proposed by Gilmer et al. [1].
