@@ -10,11 +10,12 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 
-class MPNN(nn.Module):
+class LSTM(nn.Module):
     """
-        MPNN as proposed by Gilmer et al..
+        Independent Study Contribution
 
-        This class implements the whole Gilmer et al. model following the functions Message, Update and Readout.
+        LSTM model which takes message passing hidden states as input to LSTM layers, replacing
+        the Readout Function.
 
         Parameters
         ----------
@@ -41,13 +42,13 @@ class MPNN(nn.Module):
         l_target,
         type="regression",
     ):
-        super(MPNN, self).__init__()
+        super(LSTM, self).__init__()
 
         # Define message
         self.m = nn.ModuleList(
             [
                 MessageFunction(
-                    "mpnn",
+                    "lstm",
                     args={
                         "edge_feat": in_n[1],
                         "in": hidden_state_size,
@@ -61,14 +62,14 @@ class MPNN(nn.Module):
         self.u = nn.ModuleList(
             [
                 UpdateFunction(
-                    "mpnn", args={"in_m": message_size, "out": hidden_state_size}
+                    "lstm", args={"in_m": message_size, "out": hidden_state_size}
                 )
             ]
         )
 
         # Define Readout
         self.r = ReadoutFunction(
-            "mpnn", args={"in": hidden_state_size, "target": l_target}
+            "lstm", args={"in": hidden_state_size, "target": l_target}
         )
 
         self.type = type
@@ -103,6 +104,7 @@ class MPNN(nn.Module):
 
             h_aux = h[t].view(-1, h[t].size(2))
 
+            # run lstm message passing forward() function
             m = self.m[0].forward(h[t], h_aux, e_aux)
             m = m.view(h[0].size(0), h[0].size(1), -1, m.size(1))
 
@@ -111,15 +113,22 @@ class MPNN(nn.Module):
 
             m = torch.squeeze(torch.sum(m, 1))
 
+            # run lstm update forward() function
             h_t = self.u[0].forward(h[t], m)
 
             # Delete virtual nodes
             h_t = (torch.sum(h_in, 2)[..., None].expand_as(h_t) > 0).type_as(h_t) * h_t
             h.append(h_t)
 
-        # Readout
-        res = self.r.forward(h)
+        # print("h_t")
+        # print(h[0][0][0])
+        # print("layer" + str(self.n_layers))
+        # print(h[self.n_layers][0][0])
 
+        # exit()
+        # Run lstm readout forward function
+
+        res = self.r.forward(h)
         if self.type == "classification":
             res = nn.LogSoftmax()(res)
         return res

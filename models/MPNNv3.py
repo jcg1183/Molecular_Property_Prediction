@@ -10,7 +10,6 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 
-
 class MPNNv3(nn.Module):
     """
         MPNN as proposed by Duvenaud et al..
@@ -34,24 +33,53 @@ class MPNNv3(nn.Module):
             Classification | [Regression (default)]. If classification, LogSoftmax layer is applied to the output vector.
     """
 
-    def __init__(self, d, in_n, out_update, hidden_state_readout, l_target, type='regression'):
+    def __init__(
+        self, d, in_n, out_update, hidden_state_readout, l_target, type="regression"
+    ):
         super(MPNNv3, self).__init__()
 
         n_layers = len(out_update)
 
         # Define message 1 & 2
-        self.m = nn.ModuleList([MessageFunction('duvenaud') for _ in range(n_layers)])
+        self.m = nn.ModuleList([MessageFunction("duvenaud") for _ in range(n_layers)])
 
         # Define Update 1 & 2
-        self.u = nn.ModuleList([UpdateFunction('duvenaud', args={'deg': d, 'in': self.m[i].get_out_size(in_n[0], in_n[1]), 'out': out_update[0]}) if i == 0 else
-                                UpdateFunction('duvenaud', args={'deg': d, 'in': self.m[i].get_out_size(out_update[i-1], in_n[1]), 'out': out_update[i]}) for i in range(n_layers)])
+        self.u = nn.ModuleList(
+            [
+                UpdateFunction(
+                    "duvenaud",
+                    args={
+                        "deg": d,
+                        "in": self.m[i].get_out_size(in_n[0], in_n[1]),
+                        "out": out_update[0],
+                    },
+                )
+                if i == 0
+                else UpdateFunction(
+                    "duvenaud",
+                    args={
+                        "deg": d,
+                        "in": self.m[i].get_out_size(out_update[i - 1], in_n[1]),
+                        "out": out_update[i],
+                    },
+                )
+                for i in range(n_layers)
+            ]
+        )
 
         # Define Readout
-        self.r = ReadoutFunction('duvenaud',
-                                 args={'layers': len(self.m) + 1,
-                                       'in': [in_n[0] if i == 0 else out_update[i-1] for i in range(n_layers+1)],
-                                       'out': hidden_state_readout,
-                                       'target': l_target})
+        self.r = ReadoutFunction(
+            "duvenaud",
+            args={
+                "layers": len(self.m) + 1,
+                "in": [
+                    in_n[0] if i == 0 else out_update[i - 1]
+                    for i in range(n_layers + 1)
+                ],
+                "out": hidden_state_readout,
+                "target": l_target,
+            },
+        )
 
         self.type = type
 
@@ -65,7 +93,11 @@ class MPNNv3(nn.Module):
 
             u_args = self.u[t].get_args()
 
-            h_t = Variable(torch.zeros(h_in.size(0), h_in.size(1), u_args['out']).type_as(h[t].data))
+            h_t = Variable(
+                torch.zeros(h_in.size(0), h_in.size(1), u_args["out"]).type_as(
+                    h[t].data
+                )
+            )
 
             # Apply one layer pass (Message + Update)
             for v in range(0, h_in.size(1)):
@@ -81,28 +113,38 @@ class MPNNv3(nn.Module):
                 deg = torch.sum(g[:, v, :].data, 1)
 
                 # Separate degrees
-                for i in range(len(u_args['deg'])):
-                    ind = deg == u_args['deg'][i]
-                    ind = Variable(torch.squeeze(torch.nonzero(torch.squeeze(ind))), volatile=True)
+                for i in range(len(u_args["deg"])):
+                    ind = deg == u_args["deg"][i]
+                    ind = Variable(
+                        torch.squeeze(torch.nonzero(torch.squeeze(ind))), volatile=True
+                    )
 
-                    opt = {'deg': i}
+                    opt = {"deg": i}
 
                     # Update
-                    if len(ind) != 0:
-                        aux = self.u[t].forward(torch.index_select(h[t], 0, ind)[:, v, :], torch.index_select(m, 0, ind), opt)
+                    if ind.nelement() != 0:
+                        aux = self.u[t].forward(
+                            torch.index_select(h[t], 0, ind)[:, v, :],
+                            torch.index_select(m, 0, ind),
+                            opt,
+                        )
                         ind = ind.data.cpu().numpy()
-                        for j in range(len(ind)):
+                        print(ind.shape)
+                        print(ind.shape)
+                        for j in range(ind.shape[0]):
                             h_t[ind[j], v, :] = aux[j, :]
 
             if plotter is not None:
                 num_feat = h_t.size(2)
-                color = h_t[0,:,:].data.cpu().numpy()
+                color = h_t[0, :, :].data.cpu().numpy()
                 for i in range(num_feat):
-                    plotter(color[:, i], 'layer_' + str(t) + '_element_' + str(i) + '.png')
+                    plotter(
+                        color[:, i], "layer_" + str(t) + "_element_" + str(i) + ".png"
+                    )
 
             h.append(h_t.clone())
         # Readout
         res = self.r.forward(h)
-        if self.type == 'classification':
+        if self.type == "classification":
             res = nn.LogSoftmax()(res)
         return res

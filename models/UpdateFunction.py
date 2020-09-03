@@ -1,4 +1,4 @@
-#!/usr/bin/python                                                                                                                                                                                               
+#!/usr/bin/python
 # -*- coding: utf-8 -*-
 
 """
@@ -25,16 +25,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd.variable import Variable
 
-#dtype = torch.cuda.FloatTensor
+# dtype = torch.cuda.FloatTensor
 dtype = torch.FloatTensor
 
 
 class UpdateFunction(nn.Module):
 
     # Constructor
-    def __init__(self, update_def='nn', args={}):
+    def __init__(self, update_def="nn", args={}):
         super(UpdateFunction, self).__init__()
-        self.u_definition = ''
+        self.u_definition = ""
         self.u_function = None
         self.args = {}
         self.__set_update(update_def, args)
@@ -48,19 +48,26 @@ class UpdateFunction(nn.Module):
         self.u_definition = update_def.lower()
 
         self.u_function = {
-                    'duvenaud':         self.u_duvenaud,            
-                    'intnet':             self.u_intnet,
-                    'mpnn':             self.u_mpnn
-                }.get(self.u_definition, None)
+            "duvenaud": self.u_duvenaud,
+            "intnet": self.u_intnet,
+            "mpnn": self.u_mpnn,
+            "lstm": self.u_lstm,
+        }.get(self.u_definition, None)
 
         if self.u_function is None:
-            print('WARNING!: Update Function has not been set correctly\n\tIncorrect definition ' + update_def)
+            print(
+                "WARNING!: Update Function has not been set correctly\n\tIncorrect definition "
+                + update_def
+            )
 
         init_parameters = {
-            'duvenaud':         self.init_duvenaud,            
-            'intnet':             self.init_intnet,
-            'mpnn':             self.init_mpnn
-        }.get(self.u_definition, lambda x: (nn.ParameterList([]), nn.ModuleList([]), {}))
+            "duvenaud": self.init_duvenaud,
+            "intnet": self.init_intnet,
+            "mpnn": self.init_mpnn,
+            "lstm": self.init_lstm,
+        }.get(
+            self.u_definition, lambda x: (nn.ParameterList([]), nn.ModuleList([]), {})
+        )
 
         self.learn_args, self.learn_modules, self.args = init_parameters(args)
 
@@ -71,18 +78,20 @@ class UpdateFunction(nn.Module):
     # Get the update function arguments
     def get_args(self):
         return self.args
-    
+
     # Duvenaud
     def u_duvenaud(self, h_v, m_v, opt):
 
-        param_sz = self.learn_args[0][opt['deg']].size()
-        parameter_mat = torch.t(self.learn_args[0][opt['deg']])[None, ...].expand(m_v.size(0), param_sz[1], param_sz[0])
-        
-        #print(parameter_mat.size())
-        #print(m_v.size())
-        #print(torch.transpose(m_v.unsqueeze(-2), 1, 2).size())
+        param_sz = self.learn_args[0][opt["deg"]].size()
+        parameter_mat = torch.t(self.learn_args[0][opt["deg"]])[None, ...].expand(
+            m_v.size(0), param_sz[1], param_sz[0]
+        )
 
-        #aux = torch.bmm(parameter_mat, torch.transpose(m_v, 1, 2))
+        # print(parameter_mat.size())
+        # print(m_v.size())
+        # print(torch.transpose(m_v.unsqueeze(-2), 1, 2).size())
+
+        # aux = torch.bmm(parameter_mat, torch.transpose(m_v, 1, 2))
         aux = torch.bmm(parameter_mat, torch.transpose(m_v.unsqueeze(-2), 1, 2))
 
         return torch.transpose(torch.nn.Sigmoid()(aux), 1, 2)
@@ -93,19 +102,21 @@ class UpdateFunction(nn.Module):
         args = {}
 
         # Filter degree 0 (the message will be 0 and therefore there is no update
-        args['deg'] = [i for i in params['deg'] if i!=0]
-        args['in'] = params['in']
-        args['out'] = params['out']
+        args["deg"] = [i for i in params["deg"] if i != 0]
+        args["in"] = params["in"]
+        args["out"] = params["out"]
 
         # Define a parameter matrix H for each degree.
-        learn_args.append(torch.nn.Parameter(torch.randn(len(args['deg']), args['in'], args['out'])))
+        learn_args.append(
+            torch.nn.Parameter(torch.randn(len(args["deg"]), args["in"], args["out"]))
+        )
 
-        return nn.ParameterList(learn_args), nn.ModuleList(learn_modules), args    
+        return nn.ParameterList(learn_args), nn.ModuleList(learn_modules), args
 
     # Battaglia et al. (2016), Interaction Networks
     def u_intnet(self, h_v, m_v, opt):
-        if opt['x_v'].ndimension():
-            input_tensor = torch.cat([h_v, opt['x_v'], torch.squeeze(m_v)], 1)
+        if opt["x_v"].ndimension():
+            input_tensor = torch.cat([h_v, opt["x_v"], torch.squeeze(m_v)], 1)
         else:
             input_tensor = torch.cat([h_v, torch.squeeze(m_v)], 1)
 
@@ -116,17 +127,17 @@ class UpdateFunction(nn.Module):
         learn_modules = []
         args = {}
 
-        args['in'] = params['in']
-        args['out'] = params['out']
+        args["in"] = params["in"]
+        args["out"] = params["out"]
 
-        learn_modules.append(NNet(n_in=params['in'], n_out=params['out']))
+        learn_modules.append(NNet(n_in=params["in"], n_out=params["out"]))
 
         return nn.ParameterList(learn_args), nn.ModuleList(learn_modules), args
 
     def u_mpnn(self, h_v, m_v, opt={}):
-        h_in = h_v.view(-1,h_v.size(2))
-        m_in = m_v.view(-1,m_v.size(2))
-        h_new = self.learn_modules[0](m_in[None,...],h_in[None,...])[0] # 0 or 1???
+        h_in = h_v.view(-1, h_v.size(2))
+        m_in = m_v.view(-1, m_v.size(2))
+        h_new = self.learn_modules[0](m_in[None, ...], h_in[None, ...])[0]  # 0 or 1???
         return torch.squeeze(h_new).view(h_v.size())
 
     def init_mpnn(self, params):
@@ -134,21 +145,45 @@ class UpdateFunction(nn.Module):
         learn_modules = []
         args = {}
 
-        args['in_m'] = params['in_m']
-        args['out'] = params['out']
+        args["in_m"] = params["in_m"]
+        args["out"] = params["out"]
 
         # GRU
-        learn_modules.append(nn.GRU(params['in_m'], params['out']))
+        learn_modules.append(nn.GRU(params["in_m"], params["out"]))
+
+        return nn.ParameterList(learn_args), nn.ModuleList(learn_modules), args
+
+    def u_lstm(self, h_v, m_v, opt={}):
+        h_in = h_v.view(-1, h_v.size(2))
+        m_in = m_v.view(-1, m_v.size(2))
+        h_new = self.learn_modules[0](m_in[None, ...], h_in[None, ...])[0]  # 0 or 1???
+        return torch.squeeze(h_new).view(h_v.size())
+
+    def init_lstm(self, params):
+        learn_args = []
+        learn_modules = []
+        args = {}
+
+        args["in_m"] = params["in_m"]
+        args["out"] = params["out"]
+
+        # GRU
+        learn_modules.append(nn.GRU(params["in_m"], params["out"]))
 
         return nn.ParameterList(learn_args), nn.ModuleList(learn_modules), args
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     # Parse optios for downloading
-    parser = argparse.ArgumentParser(description='QM9 Object.')
+    parser = argparse.ArgumentParser(description="QM9 Object.")
     # Optional argument
-    parser.add_argument('--root', nargs=1, help='Specify the data directory.', default=['./data/qm9/dsgdb9nsd/'])
+    parser.add_argument(
+        "--root",
+        nargs=1,
+        help="Specify the data directory.",
+        default=["./data/qm9/dsgdb9nsd/"],
+    )
 
     args = parser.parse_args()
     root = args.root[0]
@@ -159,20 +194,20 @@ if __name__ == '__main__':
     idx = idx.tolist()
 
     valid_ids = [files[i] for i in idx[0:10000]]
-    test_ids  = [files[i] for i in idx[10000:20000]]
+    test_ids = [files[i] for i in idx[10000:20000]]
     train_ids = [files[i] for i in idx[20000:]]
 
     data_train = utils.Qm9(root, train_ids)
     data_valid = utils.Qm9(root, valid_ids)
     data_test = utils.Qm9(root, test_ids)
 
-    print('STATS')
+    print("STATS")
     # d = datasets.utils.get_graph_stats(data_test, 'degrees')
     d = [1, 2, 3, 4]
 
-    print('Message')
+    print("Message")
     ## Define message
-    m = MessageFunction('mpnn')
+    m = MessageFunction("mpnn")
 
     ## Parameters for the update function
     # Select one graph
@@ -183,9 +218,9 @@ if __name__ == '__main__':
     in_n = len(m_v)
     out_n = 30
 
-    print('Update')
+    print("Update")
     ## Define Update
-    u = UpdateFunction('mpnn', args={'deg': d, 'in': in_n , 'out': out_n})
+    u = UpdateFunction("mpnn", args={"deg": d, "in": in_n, "out": out_n})
 
     print(m.get_definition())
     print(u.get_definition())
@@ -212,14 +247,14 @@ if __name__ == '__main__':
                 m_neigh = m_v
 
         # Duvenaud
-        opt = {'deg': len(neigh)}
+        opt = {"deg": len(neigh)}
         h_t1[v] = u.forward(h_t[v], m_neigh, opt)
 
     end = time.time()
 
-    print('Input nodes')
+    print("Input nodes")
     print(h_t)
-    print('Message')
+    print("Message")
     print(h_t1)
-    print('Time')
+    print("Time")
     print(end - start)

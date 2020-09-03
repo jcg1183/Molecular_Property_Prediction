@@ -1,4 +1,4 @@
-#!/usr/bin/python                                                                                                                                                                                               
+#!/usr/bin/python
 # -*- coding: utf-8 -*-
 
 """
@@ -25,16 +25,16 @@ import numpy as np
 
 from torch.autograd.variable import Variable
 
-#dtype = torch.cuda.FloatTensor
+# dtype = torch.cuda.FloatTensor
 dtype = torch.FloatTensor
 
 
 class ReadoutFunction(nn.Module):
 
     # Constructor
-    def __init__(self, readout_def='nn', args={}):
+    def __init__(self, readout_def="nn", args={}):
         super(ReadoutFunction, self).__init__()
-        self.r_definition = ''
+        self.r_definition = ""
         self.r_function = None
         self.args = {}
         self.__set_readout(readout_def, args)
@@ -48,20 +48,27 @@ class ReadoutFunction(nn.Module):
         self.r_definition = readout_def.lower()
 
         self.r_function = {
-                    'duvenaud': self.r_duvenaud,            
-                    'intnet':     self.r_intnet,
-                    'mpnn':     self.r_mpnn
-                }.get(self.r_definition, None)
+            "duvenaud": self.r_duvenaud,
+            "intnet": self.r_intnet,
+            "mpnn": self.r_mpnn,
+            "lstm": self.r_lstm,
+        }.get(self.r_definition, None)
 
         if self.r_function is None:
-            print('WARNING!: Readout Function has not been set correctly\n\tIncorrect definition ' + readout_def)
+            print(
+                "WARNING!: Readout Function has not been set correctly\n\tIncorrect definition "
+                + readout_def
+            )
             quit()
 
         init_parameters = {
-            'duvenaud': self.init_duvenaud,            
-            'intnet':     self.init_intnet,
-            'mpnn':     self.init_mpnn
-        }.get(self.r_definition, lambda x: (nn.ParameterList([]), nn.ModuleList([]), {}))
+            "duvenaud": self.init_duvenaud,
+            "intnet": self.init_intnet,
+            "mpnn": self.init_mpnn,
+            "lstm": self.init_lstm,
+        }.get(
+            self.r_definition, lambda x: (nn.ParameterList([]), nn.ModuleList([]), {})
+        )
 
         self.learn_args, self.learn_modules, self.args = init_parameters(args)
 
@@ -75,14 +82,21 @@ class ReadoutFunction(nn.Module):
         aux = []
         for l in range(len(h)):
             param_sz = self.learn_args[l].size()
-            parameter_mat = torch.t(self.learn_args[l])[None, ...].expand(h[l].size(0), param_sz[1],
-                                                                                      param_sz[0])
+            parameter_mat = torch.t(self.learn_args[l])[None, ...].expand(
+                h[l].size(0), param_sz[1], param_sz[0]
+            )
 
-            aux.append(torch.transpose(torch.bmm(parameter_mat, torch.transpose(h[l], 1, 2)), 1, 2))
+            aux.append(
+                torch.transpose(
+                    torch.bmm(parameter_mat, torch.transpose(h[l], 1, 2)), 1, 2
+                )
+            )
 
             for j in range(0, aux[l].size(1)):
                 # Mask whole 0 vectors
-                aux[l][:, j, :] = nn.Softmax()(aux[l][:, j, :].clone())*(torch.sum(aux[l][:, j, :] != 0, 1) > 0)[...,None].expand_as(aux[l][:, j, :]).type_as(aux[l])
+                aux[l][:, j, :] = nn.Softmax()(aux[l][:, j, :].clone()) * (
+                    torch.sum(aux[l][:, j, :] != 0, 1) > 0
+                )[..., None].expand_as(aux[l][:, j, :]).type_as(aux[l])
 
         aux = torch.sum(torch.sum(torch.stack(aux, 3), 3), 1)
         return self.learn_modules[0](torch.squeeze(aux))
@@ -92,22 +106,21 @@ class ReadoutFunction(nn.Module):
         learn_modules = []
         args = {}
 
-        args['out'] = params['out']
+        args["out"] = params["out"]
 
         # Define a parameter matrix W for each layer.
-        for l in range(params['layers']):
-            learn_args.append(nn.Parameter(torch.randn(params['in'][l], params['out'])))
+        for l in range(params["layers"]):
+            learn_args.append(nn.Parameter(torch.randn(params["in"][l], params["out"])))
 
         # learn_modules.append(nn.Linear(params['out'], params['target']))
 
-        learn_modules.append(NNet(n_in=params['out'], n_out=params['target']))
-        return nn.ParameterList(learn_args), nn.ModuleList(learn_modules), args    
-    
-    
+        learn_modules.append(NNet(n_in=params["out"], n_out=params["target"]))
+        return nn.ParameterList(learn_args), nn.ModuleList(learn_modules), args
+
     # Battaglia et al. (2016), Interaction Networks
     def r_intnet(self, h):
 
-        aux = torch.sum(h[-1],1)
+        aux = torch.sum(h[-1], 1)
 
         return self.learn_modules[0](aux)
 
@@ -116,21 +129,27 @@ class ReadoutFunction(nn.Module):
         learn_modules = []
         args = {}
 
-        learn_modules.append(NNet(n_in=params['in'], n_out=params['target']))
+        learn_modules.append(NNet(n_in=params["in"], n_out=params["target"]))
 
         return nn.ParameterList(learn_args), nn.ModuleList(learn_modules), args
 
     def r_mpnn(self, h):
 
-        aux = Variable( torch.Tensor(h[0].size(0), self.args['out']).type_as(h[0].data).zero_() )
+        aux = Variable(
+            torch.Tensor(h[0].size(0), self.args["out"]).type_as(h[0].data).zero_()
+        )
         # For each graph
         for i in range(h[0].size(0)):
-            nn_res = nn.Sigmoid()(self.learn_modules[0](torch.cat([h[0][i,:,:], h[-1][i,:,:]], 1)))*self.learn_modules[1](h[-1][i,:,:])
+            nn_res = nn.Sigmoid()(
+                self.learn_modules[0](torch.cat([h[0][i, :, :], h[-1][i, :, :]], 1))
+            ) * self.learn_modules[1](h[-1][i, :, :])
 
             # Delete virtual nodes
-            nn_res = (torch.sum(h[0][i,:,:],1)[...,None].expand_as(nn_res)>0).type_as(nn_res)* nn_res
+            nn_res = (
+                torch.sum(h[0][i, :, :], 1)[..., None].expand_as(nn_res) > 0
+            ).type_as(nn_res) * nn_res
 
-            aux[i,:] = torch.sum(nn_res,0)
+            aux[i, :] = torch.sum(nn_res, 0)
 
         return aux
 
@@ -140,20 +159,66 @@ class ReadoutFunction(nn.Module):
         args = {}
 
         # i
-        learn_modules.append(NNet(n_in=2*params['in'], n_out=params['target']))
+        learn_modules.append(NNet(n_in=2 * params["in"], n_out=params["target"]))
 
         # j
-        learn_modules.append(NNet(n_in=params['in'], n_out=params['target']))
+        learn_modules.append(NNet(n_in=params["in"], n_out=params["target"]))
 
-        args['out'] = params['target']
+        args["out"] = params["target"]
 
         return nn.ParameterList(learn_args), nn.ModuleList(learn_modules), args
 
-if __name__ == '__main__':
+    #Independent Study Contribution
+    def r_lstm(self, h):
+        h0 = torch.zeros(2, h[0].size(0), 73 * 2).cuda()
+        c0 = torch.zeros(2, h[0].size(0), 73 * 2).cuda()
+
+        out, _ = self.learn_modules[0](h[-1], (h0, c0))
+
+        out = self.learn_modules[1](out[:, -1, :]).clamp(min=0)
+        out = self.learn_modules[2](out)
+
+        return out
+
+    #Independent Study Contribution
+    def init_lstm(self, params):
+        learn_args = []
+        learn_modules = []
+        args = {}
+        num_layers = 2
+
+        learn_modules.append(
+            nn.LSTM(
+                input_size=params["in"],
+                hidden_size=params["in"] * 2,
+                num_layers=num_layers,
+                batch_first=True,
+            )
+        )
+
+        learn_modules.append(
+            nn.Linear(in_features=params["in"] * 2, out_features=params["in"])
+        )
+
+        learn_modules.append(
+            nn.Linear(in_features=params["in"], out_features=params["target"])
+        )
+
+        args["out"] = params["target"]
+
+        return nn.ParameterList(learn_args), nn.ModuleList(learn_modules), args
+
+
+if __name__ == "__main__":
     # Parse optios for downloading
-    parser = argparse.ArgumentParser(description='QM9 Object.')
+    parser = argparse.ArgumentParser(description="QM9 Object.")
     # Optional argument
-    parser.add_argument('--root', nargs=1, help='Specify the data directory.', default=['./data/qm9/dsgdb9nsd/'])
+    parser.add_argument(
+        "--root",
+        nargs=1,
+        help="Specify the data directory.",
+        default=["./data/qm9/dsgdb9nsd/"],
+    )
 
     args = parser.parse_args()
     root = args.root[0]
@@ -175,7 +240,7 @@ if __name__ == '__main__':
     d = [1, 2, 3, 4]
 
     ## Define message
-    m = MessageFunction('mpnn')
+    m = MessageFunction("mpnn")
 
     ## Parameters for the update function
     # Select one graph
@@ -188,12 +253,14 @@ if __name__ == '__main__':
     out_n = 30
 
     ## Define Update
-    u = UpdateFunction('mpnn', args={'deg': d, 'in': in_n, 'out': out_n})
+    u = UpdateFunction("mpnn", args={"deg": d, "in": in_n, "out": out_n})
 
     in_n = len(h_t[0])
 
     ## Define Readout
-    r = ReadoutFunction('mpnn', args={'layers': 2, 'in': [in_n, out_n], 'out': 50, 'target': len(l)})
+    r = ReadoutFunction(
+        "mpnn", args={"layers": 2, "in": [in_n, out_n], "out": 50, "target": len(l)}
+    )
 
     print(m.get_definition())
     print(u.get_definition())
@@ -221,22 +288,21 @@ if __name__ == '__main__':
                 e_vw = e[(v, w)]
             else:
                 e_vw = e[(w, v)]
-            m_v = m.forward(h[t-1][v], h[t-1][w], e_vw)
+            m_v = m.forward(h[t - 1][v], h[t - 1][w], e_vw)
             if len(m_neigh):
                 m_neigh += m_v
             else:
                 m_neigh = m_v
 
         # Duvenaud
-        opt = {'deg': len(neigh)}
-        h[t][v] = u.forward(h[t-1][v], m_neigh, opt)
+        opt = {"deg": len(neigh)}
+        h[t][v] = u.forward(h[t - 1][v], m_neigh, opt)
 
     # Readout
     res = r.forward(h)
 
     end = time.time()
 
-
     print(res)
-    print('Time')
+    print("Time")
     print(end - start)
