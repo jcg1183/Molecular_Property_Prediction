@@ -2,6 +2,11 @@
 
 This repository contains forked code from an implementation of Graph Neural Networks for Quantum Chemistry.  My contribution was an LSTM readout function and testing of model hyperparameters.  My work is indicated in function descriptions.
 
+My work is in the /models files:
+  LSTM.py
+  MessageFunction.py
+  ReadoutFunction.py
+
 Joshua Greene
 Summer 2020
 Independent Study
